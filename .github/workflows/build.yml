@@ -22,14 +22,33 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # The ubuntu-latest image already has an Android SDK at $ANDROID_HOME.
+      # Only ensure the exact platform + build-tools we compile against exist.
+      - name: Ensure Android SDK packages
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "Using SDK at $SDK"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          SDKMGR="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMGR" ]; then
+            yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+            "$SDKMGR" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools" || true
+          else
+            echo "sdkmanager not found; relying on preinstalled platform 35"
+          fi
+          ls "$SDK/platforms" || true
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
+
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
@@ -42,6 +61,7 @@ jobs:
           mkdir -p out
           cp app/build/outputs/apk/debug/app-debug.apk out/permanent-browser-debug.apk
           cp app/build/outputs/apk/release/app-release.apk out/permanent-browser-release.apk
+          ls -lh out
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
