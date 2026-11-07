@@ -243,8 +243,7 @@ class MainActivity : ComponentActivity(), BrowserEngine.ActivityIntents {
     }
 
     override fun showJsDialog(dialog: BrowserSession.JsDialog) {
-        // Routed through Compose via the engine's shared state in BrowserScreen.
-        pendingDialog = dialog
+        // BrowserScreen collects this and renders a Compose dialog.
         dialogBus.tryEmit(dialog)
     }
 
@@ -252,7 +251,6 @@ class MainActivity : ComponentActivity(), BrowserEngine.ActivityIntents {
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
     companion object {
-        var pendingDialog: BrowserSession.JsDialog? = null
         val dialogBus = kotlinx.coroutines.flow.MutableSharedFlow<BrowserSession.JsDialog>(
             extraBufferCapacity = 4,
         )
