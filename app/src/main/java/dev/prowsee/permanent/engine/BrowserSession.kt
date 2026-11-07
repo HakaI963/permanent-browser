@@ -255,6 +255,9 @@ class BrowserSession(
         val wv = _webView
         if (wv != null) {
             wv.applySettings(settings, desktopMode, incognito)
+            // Pass the new value, not a constant: turning desktop mode off must remove
+            // the viewport rewrite as well as restore the mobile UA.
+            DesktopMode.sync(wv, desktopMode)
             if (url.isNotBlank() && url != "about:blank") wv.reload()
         }
         notifyChanged()
@@ -275,7 +278,10 @@ class BrowserSession(
         // A UA change only takes effect on the next load, so a desktop-mode change
         // must reload even when the caller asked not to disturb pages.
         val desktopChanged = previousDesktop != desktopMode
-        if (desktopChanged || applyToPage) {
+        if (desktopChanged) {
+            DesktopMode.sync(wv, desktopMode)
+            if (url.isNotBlank() && url != "about:blank") wv.reload()
+        } else if (applyToPage) {
             if (url.isNotBlank() && url != "about:blank") wv.reload()
         }
         notifyChanged()
@@ -376,6 +382,9 @@ class BrowserSession(
             this@BrowserSession.errorText = null
             // Restore the Chrome-shaped environment Google's sign-in expects.
             PageShims.inject(view)
+            // Desktop mode is a UA *and* a viewport change; the viewport half has to be
+            // re-applied per document because each navigation starts a new one.
+            DesktopMode.sync(view, this@BrowserSession.desktopMode)
             notifyChanged()
         }
 

@@ -40,7 +40,7 @@ The last two rows are the honest limits. A third-party app cannot be immune to t
 - **Multi-tab, all kept alive** — switching tabs re-parents a live WebView, never re-creates it.
 - **Foreground session service** — persistent notification with Reload and Close-all actions.
 - **Address bar** — URL or search, with a URL/search heuristic (`Urls.toLoadable`).
-- **Desktop mode** — per-tab desktop user agent toggle.
+- **Desktop mode** — a real desktop layout, not just a UA swap: the UA changes *and* the CSS viewport is widened to 1280px via document-start JavaScript, which is what actually makes responsive sites render their desktop breakpoint.
 - **Private tabs** — no cache, no history writes.
 - **Ad & tracker blocking** — local hosts blocklist, ~220 domains, parent-domain matching, main frame never blocked.
 - **Bookmarks & history** — Room, local only.
@@ -93,6 +93,9 @@ app/src/main/java/dev/prowsee/permanent/
 │   ├── AdBlocker.kt           Hosts-based blocker
 │   ├── DownloadHandler.kt     DownloadManager bridge
 │   ├── BlobDownloader.kt      In-page JS bridge for blob:/data: saves
+│   ├── DesktopMode.kt         Viewport rewrite for desktop layout
+│   ├── PageShims.kt           window.chrome stub for Google sign-in
+│   ├── UserAgents.kt          Clean Chrome UA, no "; wv" / "Version/4.0"
 │   └── EngineModels.kt        TabInfo / EngineState
 ├── ui/
 │   ├── MainActivity.kt        Compose host + intent/file/permission bridges
@@ -125,6 +128,18 @@ prefer the stricter default and do not sign in to those services.
 If a provider still refuses, open it in the system browser via the menu — that is a
 limitation of any WebView-based browser, not of this one.
 
+## Why desktop mode is two changes, not one
+
+Swapping the user agent is the obvious half and the easy half. It is also the half
+that does nothing on its own for most modern sites.
+
+Responsive CSS chooses a layout from the **viewport width**, not from the UA. A page
+whose `<meta name="viewport">` still says `width=device-width` renders its mobile
+breakpoint no matter what the UA claims. Chrome's "Request desktop site" therefore
+also rewrites the viewport meta, and this browser does the same through
+`WebViewCompat.addDocumentStartJavaScript` — document-start matters because the
+rewrite has to win the race against the page's own scripts.
+
 ## Known limits
 
 - **WebView, not Chromium.** It cannot be a full Chrome replacement: no extensions, no built-in sync, and sites are limited by the system WebView version.
@@ -139,12 +154,15 @@ limitation of any WebView-based browser, not of this one.
 ./gradlew :app:testDebugUnitTest
 ```
 
-24 JVM tests cover the URL/search heuristics, the blocker's suffix matching and the
-user-agent rules. Two of them are regression guards for shipped bugs:
+29 JVM tests cover the URL/search heuristics, the blocker's suffix matching, the
+user-agent rules and the desktop-viewport hook. Several are regression guards for
+shipped bugs:
 
 - `doubleclick.net` blocks `static.doubleclick.net` but not `doubleclick.net.example.com`
 - the UA never contains `; wv` or `Version/4.0`, the two tokens Google's sign-in
   rejects
+- the desktop hook rewrites an existing `width=device-width` meta and creates one
+  when the page has none, without pinning `initial-scale`
 
 ## License
 

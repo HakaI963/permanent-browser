@@ -193,7 +193,7 @@ fun MenuSheet(
             MenuRow("Hard reload (bypass cache)", "Use when a page is stale", onClick = onHardReload)
             MenuRow(
                 "Request desktop site",
-                if (tab?.desktopMode == true) "On" else "Off",
+                if (settings.desktopMode) "On" else "Off",
                 onClick = onDesktopToggle,
             )
             MenuRow(

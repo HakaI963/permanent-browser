@@ -89,6 +89,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.guava)
 
     implementation(libs.okhttp)
+    implementation(libs.androidx.webkit)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.ext.junit)
