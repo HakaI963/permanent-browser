@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Permanent Browser</string>
+    <string name="notification_channel_name">Live browsing session</string>
+    <string name="notification_channel_description">Keeps your open pages alive so they never reload.</string>
+    <string name="notification_title">Permanent Browser is running</string>
+    <string name="notification_text_idle">No pages open</string>
+    <string name="action_reload">Reload</string>
+    <string name="action_close">Close all</string>
+    <string name="action_open">Open</string>
+</resources>
