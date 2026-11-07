@@ -68,19 +68,36 @@ object BrowserEngine : BrowserSession.Listener {
 
     /** Called once settings have been read, so restored tabs use the right UA/JS state. */
     fun ensureTabs() {
-        if (sessions.isNotEmpty()) return
-        val ctx = appContext ?: return
-        restoreSession(ctx)
-        publish()
+        runOnMain {
+            if (sessions.isNotEmpty()) return@runOnMain
+            val ctx = appContext ?: return@runOnMain
+            restoreSession(ctx)
+            publish()
+        }
     }
 
+    /**
+     * Thread-safe entry point.
+     *
+     * Settings arrive from a DataStore collector on Dispatchers.IO, but WebView may
+     * only be touched on the main thread. Everything that reaches a WebView is
+     * therefore hopped onto the main looper. Calling this from the main thread is
+     * still safe: [runOnMain] executes inline in that case.
+     */
     fun updateSettings(newSettings: Settings, applyToPages: Boolean = true) {
-        val keepAliveChanged = newSettings.keepAlive != settings.keepAlive
-        settings = newSettings
-        AdBlocker.enabled = newSettings.adBlock
-        sessions.values.filter { it.isCreated }.forEach { it.updateSettings(newSettings, applyToPages) }
-        if (keepAliveChanged) applyKeepAlive(newSettings.keepAlive)
-        publish()
+        runOnMain {
+            val keepAliveChanged = newSettings.keepAlive != settings.keepAlive
+            settings = newSettings
+            AdBlocker.enabled = newSettings.adBlock
+            sessions.values.filter { it.isCreated }.forEach { it.updateSettings(newSettings, applyToPages) }
+            if (keepAliveChanged) applyKeepAlive(newSettings.keepAlive)
+            publish()
+        }
+    }
+
+    /** Runs [block] on the main thread, inline when already there. */
+    private fun runOnMain(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) block() else main.post(block)
     }
 
     /** Turning the setting off stops the foreground service; pages then behave like a normal browser. */
@@ -161,12 +178,14 @@ object BrowserEngine : BrowserSession.Listener {
     }
 
     fun closeAll() {
-        sessions.values.forEach { it.destroy() }
-        sessions.clear()
-        _state.value = _state.value.copy(activeTabId = null, tabs = emptyList())
-        // Leave the browser in a usable state rather than with zero tabs.
-        newTab(settings.homepage)
-        persistSession()
+        runOnMain {
+            sessions.values.forEach { it.destroy() }
+            sessions.clear()
+            _state.value = _state.value.copy(activeTabId = null, tabs = emptyList())
+            // Leave the browser in a usable state rather than with zero tabs.
+            newTab(settings.homepage)
+            persistSession()
+        }
     }
 
     fun active(): BrowserSession? = _state.value.activeTabId?.let { sessions[it] }
@@ -212,17 +231,19 @@ object BrowserEngine : BrowserSession.Listener {
         active()?.loadUrl(input) ?: newTab(input)
     }
 
-    fun reload() = active()?.reload()
-    fun hardReload() = active()?.hardReload()
-    fun stop() = active()?.stopLoading()
+    fun reload() = runOnMain { active()?.reload() }
+    fun hardReload() = runOnMain { active()?.hardReload() }
+    fun stop() = runOnMain { active()?.stopLoading() }
 
     fun goBack(): Boolean = active()?.goBack() ?: false
     fun goForward(): Boolean = active()?.goForward() ?: false
 
     fun setDesktopMode(enabled: Boolean) {
-        // Only live tabs: touching a session without a WebView would create one.
-        sessions.values.filter { it.isCreated }.forEach { it.setDesktopMode(enabled) }
-        publish()
+        runOnMain {
+            // Only live tabs: touching a session without a WebView would create one.
+            sessions.values.filter { it.isCreated }.forEach { it.setDesktopMode(enabled) }
+            publish()
+        }
     }
 
     fun setActiveDesktopMode(enabled: Boolean) = active()?.setDesktopMode(enabled)
@@ -377,5 +398,5 @@ object BrowserEngine : BrowserSession.Listener {
     internal fun appContext(): Context? = appContext
 
     fun homeUrl(): String = settings.homepage
-    fun searchUrl(query: String): String = Urls.toLoadable(query)
+    fun searchUrl(query: String): String = Urls.toLoadable(query, settings.searchEngine.template)
 }

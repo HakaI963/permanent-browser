@@ -9,13 +9,12 @@ object Urls {
 
     const val HOME_URL = "https://duckduckgo.com/"
 
+    const val DEFAULT_SEARCH_TEMPLATE = "https://duckduckgo.com/?q=%s"
+
     private val SCHEME = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://")
     private val IPV4 = Regex("^\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?$")
     private val DOMAIN =
         Regex("^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,}(:\\d+)?$")
-
-    /** Search engine used for non-URL input. */
-    private const val SEARCH = "https://duckduckgo.com/?q="
 
     /**
      * Schemes the WebView handles itself and that must never be rewritten.
@@ -25,7 +24,7 @@ object Urls {
         "about:", "data:", "javascript:", "blob:", "file:", "chrome:", "mailto:", "tel:", "intent:",
     )
 
-    fun toLoadable(input: String): String {
+    fun toLoadable(input: String, searchTemplate: String = DEFAULT_SEARCH_TEMPLATE): String {
         val raw = input.trim()
         if (raw.isEmpty()) return HOME_URL
         if (PASSTHROUGH.any { raw.startsWith(it, ignoreCase = true) }) return raw
@@ -38,8 +37,14 @@ object Urls {
             hostPart.substringBefore(':').equals("localhost", ignoreCase = true) -> "http://$raw"
             // Bare intranet host with a dot, e.g. "router.lan/admin".
             hostPart.contains('.') && !raw.contains(' ') -> "https://$raw"
-            else -> SEARCH + encode(raw)
+            else -> search(searchTemplate, raw)
         }
+    }
+
+    /** Expands a `%s` search template; tolerates templates without the placeholder. */
+    fun search(template: String, query: String): String {
+        val encoded = encode(query)
+        return if (template.contains("%s")) template.replace("%s", encoded) else template + encoded
     }
 
     fun host(url: String): String {
@@ -47,7 +52,6 @@ object Urls {
         if (withoutScheme == url && !url.contains("://")) {
             // No scheme at all: treat the whole thing as host-ish input.
             return url.substringBefore('/').substringBefore('?').substringBefore('#')
-                .substringBefore('@')
                 .substringAfterLast('@')
                 .lowercase()
         }
@@ -78,7 +82,7 @@ object Urls {
         for (byte in value.toByteArray(Charsets.UTF_8)) {
             val b = byte.toInt() and 0xFF
             val c = b.toChar()
-            if (c.isLetterOrDigit() && b < 0x80 || c in "-_.~") {
+            if ((c.isLetterOrDigit() && b < 0x80) || c in "-_.~") {
                 out.append(c)
             } else if (c == ' ') {
                 out.append('+')

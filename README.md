@@ -106,9 +106,29 @@ app/src/main/java/dev/prowsee/permanent/
     └── ProwseeLog.kt          Local rotating log
 ```
 
+## Signing in to Google
+
+Google refuses sign-in from anything that identifies as an embedded WebView. Two
+things were needed:
+
+1. **A clean user agent.** The stock WebView UA contains `; wv` and `Version/4.0`;
+   both are stripped and a real Chrome UA is built from the device's actual engine
+   version (`UserAgents`).
+2. **A Chrome-shaped environment.** Google's flow probes `window.chrome`; a bare
+   WebView has no such object, which is what produces *"this browser or app may not
+   be secure"*. `PageShims` provides the standard stub on every page start.
+
+Third-party cookies are **on by default** because Google, Microsoft and most SSO
+providers need them to complete the redirect chain. Turn them off in Settings if you
+prefer the stricter default and do not sign in to those services.
+
+If a provider still refuses, open it in the system browser via the menu — that is a
+limitation of any WebView-based browser, not of this one.
+
 ## Known limits
 
 - **WebView, not Chromium.** It cannot be a full Chrome replacement: no extensions, no built-in sync, and sites are limited by the system WebView version.
+- **Some identity providers still detect WebView.** The UA and `window.chrome` fixes cover Google, but a provider that inspects `navigator.userAgentData` or runs a WebView-specific probe can still refuse. There is no reliable workaround short of shipping a real Chromium build.
 - **Process death is still possible.** Nothing in userspace prevents it. The session is restored instead.
 - **Video in background** depends on the site and the WebView build; the page stays alive but playback may pause itself.
 - **`specialUse` foreground service** is the correct Play Store category for this, but Google requires a declaration if you publish there.
@@ -119,9 +139,12 @@ app/src/main/java/dev/prowsee/permanent/
 ./gradlew :app:testDebugUnitTest
 ```
 
-16 JVM tests cover the URL/search heuristics and the blocker's suffix matching,
-including the case that matters most: `doubleclick.net` blocks
-`static.doubleclick.net` but not `doubleclick.net.example.com`.
+24 JVM tests cover the URL/search heuristics, the blocker's suffix matching and the
+user-agent rules. Two of them are regression guards for shipped bugs:
+
+- `doubleclick.net` blocks `static.doubleclick.net` but not `doubleclick.net.example.com`
+- the UA never contains `; wv` or `Version/4.0`, the two tokens Google's sign-in
+  rejects
 
 ## License
 

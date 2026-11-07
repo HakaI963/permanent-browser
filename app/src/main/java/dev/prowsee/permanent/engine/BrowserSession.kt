@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
+import android.os.Looper
 import android.os.Message
 import android.view.ContextThemeWrapper
 import android.view.View
@@ -107,10 +108,26 @@ class BrowserSession(
     private fun themed(context: Context): Context =
         ContextThemeWrapper(context, R.style.Theme_PermanentBrowser_WebView)
 
-    val webView: WebView get() = _webView ?: createWebView()
+    /**
+     * WebView is strictly single-threaded: every call must happen on the thread that
+     * created it. Creating and mutating it from the DataStore collector (which runs on
+     * Dispatchers.IO) is what crashed the app when a setting changed, so all access
+     * funnels through [onMain] and the engine always calls in on the main thread.
+     */
+    val webView: WebView
+        get() {
+            assertMainThread()
+            return _webView ?: createWebView()
+        }
 
     /** True once the WebView exists. Guards against creating views for unseen tabs. */
     val isCreated: Boolean get() = _webView != null
+
+    private fun assertMainThread() {
+        check(Looper.myLooper() == Looper.getMainLooper()) {
+            "WebView for tab $id touched off the main thread"
+        }
+    }
 
     var url: String = ""
         private set
@@ -189,7 +206,8 @@ class BrowserSession(
     }
 
     fun loadUrl(rawUrl: String, fromUser: Boolean = true) {
-        val target = if (fromUser) Urls.toLoadable(rawUrl) else rawUrl
+        // Use the search engine the user picked, not a hardcoded one.
+        val target = if (fromUser) Urls.toLoadable(rawUrl, settings.searchEngine.template) else rawUrl
         ProwseeLog.d("tab $id load $target")
         errorText = null
         url = target
@@ -226,22 +244,40 @@ class BrowserSession(
         return true
     }
 
+    /**
+     * Desktop mode is a per-tab UA override. It only takes effect on the next load, so
+     * we reload - but only if this tab already has a page, and only when the value
+     * actually changed, so toggling the switch twice does not reload twice.
+     */
     fun setDesktopMode(enabled: Boolean) {
         if (desktopMode == enabled) return
         desktopMode = enabled
-        webView.applySettings(settings, desktopMode, incognito)
-        // A UA change only takes effect on the next navigation; reload is intentional here.
-        webView.reload()
+        val wv = _webView
+        if (wv != null) {
+            wv.applySettings(settings, desktopMode, incognito)
+            if (url.isNotBlank() && url != "about:blank") wv.reload()
+        }
         notifyChanged()
     }
 
+    /**
+     * Applies new global settings to this tab.
+     *
+     * Never touches the WebView unless it already exists, and never reloads unless the
+     * caller asked for it - a settings change must not disturb an open page.
+     */
     fun updateSettings(newSettings: Settings, applyToPage: Boolean) {
-        val desktopChanged = newSettings.desktopMode != settings.desktopMode
+        val previousDesktop = desktopMode
         settings = newSettings
         desktopMode = newSettings.desktopMode
         val wv = _webView ?: return
         wv.applySettings(newSettings, desktopMode, incognito)
-        if (applyToPage && desktopChanged) wv.reload()
+        // A UA change only takes effect on the next load, so a desktop-mode change
+        // must reload even when the caller asked not to disturb pages.
+        val desktopChanged = previousDesktop != desktopMode
+        if (desktopChanged || applyToPage) {
+            if (url.isNotBlank() && url != "about:blank") wv.reload()
+        }
         notifyChanged()
     }
 
@@ -338,6 +374,8 @@ class BrowserSession(
             this@BrowserSession.isLoading = true
             this@BrowserSession.progress = 0
             this@BrowserSession.errorText = null
+            // Restore the Chrome-shaped environment Google's sign-in expects.
+            PageShims.inject(view)
             notifyChanged()
         }
 
@@ -551,34 +589,11 @@ internal fun WebView.applySettings(settings: Settings, desktopMode: Boolean, inc
     s.textZoom = settings.textZoom
     s.cacheMode = if (incognito) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
 
-    if (desktopMode) {
-        if (s.userAgentString != UserAgents.DESKTOP) s.userAgentString = UserAgents.DESKTOP
-    } else {
-        UserAgents.mobile()?.let { if (s.userAgentString != it) s.userAgentString = it }
-    }
+    // A clean Chrome UA: no "; wv" and no "Version/4.0", which is what makes Google
+    // refuse sign-in with "this browser may not be secure".
+    val desired = if (desktopMode) UserAgents.desktop() else UserAgents.mobile()
+    if (s.userAgentString != desired) s.userAgentString = desired
+
     CookieManager.getInstance().setAcceptThirdPartyCookies(this, settings.thirdPartyCookies)
     CookieManager.getInstance().setAcceptCookie(true)
-}
-
-/**
- * User-agent bookkeeping.
- *
- * The mobile UA must be whatever this device's WebView actually reports, so it is
- * captured from the first WebView we create rather than hardcoded. Passing `null`
- * to `WebSettings.getDefaultUserAgent` is not reliably safe, so we never do.
- */
-internal object UserAgents {
-
-    const val DESKTOP: String =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-
-    @Volatile
-    private var mobileDefault: String? = null
-
-    fun capture(value: String?) {
-        if (mobileDefault == null && !value.isNullOrBlank()) mobileDefault = value
-    }
-
-    fun mobile(): String? = mobileDefault
 }

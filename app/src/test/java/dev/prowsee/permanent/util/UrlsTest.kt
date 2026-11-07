@@ -45,6 +45,32 @@ class UrlsTest {
     }
 
     @Test
+    fun `selected search engine is honoured`() {
+        val google = Urls.toLoadable("android browser", SearchEngine.GOOGLE.template)
+        assertTrue(google.startsWith("https://www.google.com/search?q="))
+        assertTrue(google.contains("android"))
+
+        val bing = Urls.toLoadable("android browser", SearchEngine.BING.template)
+        assertTrue(bing.startsWith("https://www.bing.com/search?q="))
+
+        val brave = Urls.toLoadable("android browser", SearchEngine.BRAVE.template)
+        assertTrue(brave.startsWith("https://search.brave.com/search?q="))
+    }
+
+    @Test
+    fun `changing the engine does not turn a url into a search`() {
+        assertEquals(
+            "https://example.com/x",
+            Urls.toLoadable("example.com/x", SearchEngine.GOOGLE.template),
+        )
+    }
+
+    @Test
+    fun `template without placeholder still works`() {
+        assertEquals("https://s.example/?x=hello", Urls.search("https://s.example/?x=", "hello"))
+    }
+
+    @Test
     fun `host extraction`() {
         assertEquals("example.com", Urls.host("https://example.com/a/b?c=d"))
         assertEquals("example.com", Urls.host("http://user:pw@example.com:8080/x"))
@@ -72,4 +98,12 @@ class UrlsTest {
         assertEquals("a-b_c.d~e", Urls.encode("a-b_c.d~e"))
         assertEquals("%26", Urls.encode("&"))
     }
+}
+
+/** Mirrors the enum in SettingsRepository without pulling Android/DataStore into a JVM test. */
+private enum class SearchEngine(val template: String) {
+    DUCKDUCKGO("https://duckduckgo.com/?q=%s"),
+    GOOGLE("https://www.google.com/search?q=%s"),
+    BING("https://www.bing.com/search?q=%s"),
+    BRAVE("https://search.brave.com/search?q=%s"),
 }

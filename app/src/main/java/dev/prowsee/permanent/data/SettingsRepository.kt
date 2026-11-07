@@ -21,7 +21,9 @@ data class Settings(
     val desktopMode: Boolean = false,
     val adBlock: Boolean = true,
     val javaScript: Boolean = true,
-    val thirdPartyCookies: Boolean = false,
+    // On by default: Google, Microsoft and most SSO providers need third-party
+    // cookies to complete sign-in inside a WebView.
+    val thirdPartyCookies: Boolean = true,
     val keepAlive: Boolean = true,
     val textZoom: Int = 100,
     val searchEngine: SearchEngine = SearchEngine.DUCKDUCKGO,
@@ -53,7 +55,7 @@ class SettingsRepository(private val context: Context) {
             desktopMode = prefs[Keys.desktopMode] ?: false,
             adBlock = prefs[Keys.adBlock] ?: true,
             javaScript = prefs[Keys.javaScript] ?: true,
-            thirdPartyCookies = prefs[Keys.thirdParty] ?: false,
+            thirdPartyCookies = prefs[Keys.thirdParty] ?: true,
             keepAlive = prefs[Keys.keepAlive] ?: true,
             textZoom = prefs[Keys.textZoom] ?: 100,
             searchEngine = runCatching {

@@ -34,8 +34,11 @@ class ProwseeApp : Application() {
             scope.launch { runCatching { repository.recordVisit(url, title) } }
         }
 
+        installCrashGuard()
+
         // Hydrate engine settings once, then keep them in sync. Tabs are restored
         // only after the first settings emission so they pick up the right UA/JS state.
+        // updateSettings() hops to the main thread itself, so collecting on IO is safe.
         scope.launch {
             settings.settings.collect { s ->
                 BrowserEngine.updateSettings(s, applyToPages = false)
@@ -48,6 +51,21 @@ class ProwseeApp : Application() {
         // Application.onCreate can run because of a background trigger, and on
         // Android 12+ starting an FGS from the background throws. The service is
         // declared START_STICKY, so the system restores it after a process kill.
+    }
+
+    /**
+     * Last-resort guard: log an unexpected main-thread crash instead of taking the
+     * process down silently. The tab is restored from the persisted session on next
+     * launch, so a single bad page cannot leave the user with a dead app.
+     */
+    private fun installCrashGuard() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                ProwseeLog.e("UNCAUGHT on ${thread.name}", throwable)
+            }
+            previous?.uncaughtException(thread, throwable)
+        }
     }
 
     companion object {

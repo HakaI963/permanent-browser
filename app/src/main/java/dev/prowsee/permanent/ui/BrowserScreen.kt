@@ -180,7 +180,11 @@ fun BrowserScreen(
             onReload = { BrowserEngine.reload(); sheet = Sheet.None },
             onHardReload = { BrowserEngine.hardReload(); sheet = Sheet.None },
             onDesktopToggle = {
-                scope.launch { settingsRepository.setDesktopMode(!settings.desktopMode) }
+                // Apply to the open tab immediately; persisting the choice also keeps it
+                // as the default for new tabs.
+                val next = !settings.desktopMode
+                BrowserEngine.setDesktopMode(next)
+                scope.launch { settingsRepository.setDesktopMode(next) }
                 sheet = Sheet.None
             },
             onAdBlockToggle = {
