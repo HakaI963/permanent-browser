@@ -109,7 +109,7 @@ object BrowserEngine : BrowserSession.Listener {
         )
         sessions[session.id] = session
         if (select) {
-            detachCurrent()
+            detachAll()
             _state.value = _state.value.copy(activeTabId = session.id)
         }
         session.loadUrl(url, fromUser = false)
@@ -128,7 +128,7 @@ object BrowserEngine : BrowserSession.Listener {
             listener = this,
         )
         sessions[session.id] = session
-        detachCurrent()
+        detachAll()
         _state.value = _state.value.copy(activeTabId = session.id)
         publish()
         persistSession()
@@ -137,9 +137,8 @@ object BrowserEngine : BrowserSession.Listener {
 
     fun selectTab(id: String) {
         if (!sessions.containsKey(id) || _state.value.activeTabId == id) return
-        detachCurrent()
         _state.value = _state.value.copy(activeTabId = id)
-        attachCurrent()
+        syncAttachment()
         publish()
         persistSession()
     }
@@ -155,7 +154,7 @@ object BrowserEngine : BrowserSession.Listener {
         if (sessions.isEmpty()) {
             newTab(settings.homepage)
         } else {
-            attachCurrent()
+            syncAttachment()
         }
         publish()
         persistSession()
@@ -176,22 +175,31 @@ object BrowserEngine : BrowserSession.Listener {
 
     fun attachTo(target: ViewGroup) {
         container = target
-        attachCurrent()
+        syncAttachment()
     }
 
     fun detachFromWindow() {
-        detachCurrent()
+        detachAll()
         container = null
     }
 
-    private fun attachCurrent() {
+    /**
+     * Idempotent: if the active tab is already parented into the container this does
+     * nothing. Re-adding a WebView that is already on screen causes a visible flash,
+     * so it matters that tab switches and recompositions both funnel through here.
+     */
+    private fun syncAttachment() {
         val target = container ?: return
         val session = active() ?: return
-        target.removeAllViews()
+        if (session.isCreated && session.webView.parent === target) {
+            session.attach(target) // refresh the Activity-backed context only
+            return
+        }
+        detachAll()
         session.attach(target)
     }
 
-    private fun detachCurrent() {
+    private fun detachAll() {
         // Only touch sessions that actually have a WebView; reading `webView` would
         // create one, which we must not do for tabs the user never opened.
         sessions.values.forEach { if (it.isCreated) it.detach() }

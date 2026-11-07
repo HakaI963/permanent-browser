@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import dev.prowsee.permanent.R
@@ -120,11 +121,34 @@ class BrowserService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private var wakeLock: PowerManager.WakeLock? = null
+
     override fun onCreate() {
         super.onCreate()
         BrowserEngine.start(this)
         BrowserEngine.setServiceRunning(true)
+        acquireWakeLock()
         ProwseeLog.d("service created")
+    }
+
+    /**
+     * A partial wake lock keeps the CPU available so timers, media and websockets in
+     * the live pages are not suspended when the screen turns off. It does not keep the
+     * screen on and is released with the service.
+     */
+    private fun acquireWakeLock() {
+        runCatching {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PermanentBrowser:session").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }.onFailure { ProwseeLog.w("wake lock refused: ${it.message}") }
+    }
+
+    private fun releaseWakeLock() {
+        runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
+        wakeLock = null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -183,6 +207,7 @@ class BrowserService : Service() {
     }
 
     override fun onDestroy() {
+        releaseWakeLock()
         BrowserEngine.setServiceRunning(false)
         ProwseeLog.d("service destroyed")
         super.onDestroy()
