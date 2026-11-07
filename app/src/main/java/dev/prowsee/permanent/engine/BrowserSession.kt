@@ -2,6 +2,7 @@ package dev.prowsee.permanent.engine
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.MutableContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -27,7 +28,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.FrameLayout
 import dev.prowsee.permanent.BuildConfig
 import dev.prowsee.permanent.R
 import dev.prowsee.permanent.data.Settings
@@ -90,9 +90,22 @@ class BrowserSession(
         private set
 
     private var _webView: WebView? = null
-    private val host: FrameLayout = FrameLayout(
+
+    /**
+     * WebView dialogs (native `<select>`, `<input type="date">`, colour pickers) need a
+     * window token, which only an Activity-backed context provides. But holding the
+     * Activity outright would leak it and defeat the whole point of this class.
+     *
+     * [MutableContextWrapper] lets the tab keep one context object for its entire life
+     * while the underlying base is swapped: Activity while visible, application context
+     * while detached. The document is never touched by the swap.
+     */
+    private val sessionContext = MutableContextWrapper(
         ContextThemeWrapper(appContext, R.style.Theme_PermanentBrowser_WebView),
     )
+
+    private fun themed(context: Context): Context =
+        ContextThemeWrapper(context, R.style.Theme_PermanentBrowser_WebView)
 
     val webView: WebView get() = _webView ?: createWebView()
 
@@ -118,6 +131,9 @@ class BrowserSession(
 
     private var lastFinishedUrl: String? = null
 
+    @Volatile
+    internal var customViewCallback: WebChromeClient.CustomViewCallback? = null
+
     val canGoBack: Boolean get() = _webView?.canGoBack() == true
     val canGoForward: Boolean get() = _webView?.canGoForward() == true
 
@@ -140,11 +156,12 @@ class BrowserSession(
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(): WebView {
-        val view = WebView(ContextThemeWrapper(appContext, R.style.Theme_PermanentBrowser_WebView))
-        view.layoutParams = FrameLayout.LayoutParams(
+        val view = WebView(sessionContext)
+        view.layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
         )
+        UserAgents.capture(view.settings.userAgentString)
         view.isVerticalScrollBarEnabled = true
         view.isHorizontalScrollBarEnabled = false
         view.setBackgroundColor(0xFF101114.toInt())
@@ -165,6 +182,7 @@ class BrowserSession(
                 ),
             )
         }
+        BlobDownloader.install(view, "ProwseeBlob")
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
         _webView = view
         return view
@@ -230,6 +248,8 @@ class BrowserSession(
     /** Parent the live WebView into a visible container. Never re-creates it. */
     fun attach(container: ViewGroup) {
         val wv = webView
+        // Give the WebView an Activity-backed context so its native dialogs can show.
+        sessionContext.baseContext = themed(container.context)
         if (wv.parent === container) {
             wv.onResume()
             wv.resumeTimers()
@@ -252,6 +272,8 @@ class BrowserSession(
     fun detach() {
         val wv = _webView ?: return
         (wv.parent as? ViewGroup)?.removeView(wv)
+        // Drop the Activity reference; the page itself is untouched.
+        sessionContext.baseContext = themed(appContext)
         ProwseeLog.d("tab $id detached, still live (url=$url)")
     }
 
@@ -483,10 +505,13 @@ class BrowserSession(
         }
 
         override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+            this@BrowserSession.customViewCallback = callback
             listener.onFullscreenChanged(this@BrowserSession, view)
         }
 
         override fun onHideCustomView() {
+            this@BrowserSession.customViewCallback?.onCustomViewHidden()
+            this@BrowserSession.customViewCallback = null
             listener.onFullscreenChanged(this@BrowserSession, null)
         }
 
@@ -525,18 +550,35 @@ internal fun WebView.applySettings(settings: Settings, desktopMode: Boolean, inc
     s.allowContentAccess = false
     s.textZoom = settings.textZoom
     s.cacheMode = if (incognito) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
-    s.userAgentString = if (desktopMode) DESKTOP_UA else MOBILE_UA
+
+    if (desktopMode) {
+        if (s.userAgentString != UserAgents.DESKTOP) s.userAgentString = UserAgents.DESKTOP
+    } else {
+        UserAgents.mobile()?.let { if (s.userAgentString != it) s.userAgentString = it }
+    }
     CookieManager.getInstance().setAcceptThirdPartyCookies(this, settings.thirdPartyCookies)
     CookieManager.getInstance().setAcceptCookie(true)
 }
 
-/** Desktop UA used by the "Request desktop site" toggle. */
-val DESKTOP_UA: String =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+/**
+ * User-agent bookkeeping.
+ *
+ * The mobile UA must be whatever this device's WebView actually reports, so it is
+ * captured from the first WebView we create rather than hardcoded. Passing `null`
+ * to `WebSettings.getDefaultUserAgent` is not reliably safe, so we never do.
+ */
+internal object UserAgents {
 
-/** Captured once; the WebView default UA identifies the real engine version. */
-val MOBILE_UA: String by lazy {
-    runCatching { WebSettings.getDefaultUserAgent(null) }.getOrNull()
-        ?: "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+    const val DESKTOP: String =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+    @Volatile
+    private var mobileDefault: String? = null
+
+    fun capture(value: String?) {
+        if (mobileDefault == null && !value.isNullOrBlank()) mobileDefault = value
+    }
+
+    fun mobile(): String? = mobileDefault
 }

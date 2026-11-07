@@ -44,7 +44,7 @@ The last two rows are the honest limits. A third-party app cannot be immune to t
 - **Private tabs** — no cache, no history writes.
 - **Ad & tracker blocking** — local hosts blocklist, ~220 domains, parent-domain matching, main frame never blocked.
 - **Bookmarks & history** — Room, local only.
-- **Downloads** — delegated to `DownloadManager`, so they continue after you leave.
+- **Downloads** — delegated to `DownloadManager`, so they continue after you leave. `blob:` and `data:` URLs are read in-page through a JS bridge and written to `MediaStore`.
 - **File uploads** — full `onShowFileChooser` bridge to the system picker, including multi-select.
 - **Camera / mic** — `onPermissionRequest` mapped to real Android runtime permissions.
 - **JS dialogs** — alert / confirm / prompt rendered as native Compose dialogs.
@@ -92,6 +92,7 @@ app/src/main/java/dev/prowsee/permanent/
 │   ├── BrowserService.kt      Foreground service, notification, START_STICKY
 │   ├── AdBlocker.kt           Hosts-based blocker
 │   ├── DownloadHandler.kt     DownloadManager bridge
+│   ├── BlobDownloader.kt      In-page JS bridge for blob:/data: saves
 │   └── EngineModels.kt        TabInfo / EngineState
 ├── ui/
 │   ├── MainActivity.kt        Compose host + intent/file/permission bridges
@@ -101,6 +102,7 @@ app/src/main/java/dev/prowsee/permanent/
 │   └── Theme.kt
 └── util/
     ├── Urls.kt                Input → URL/search heuristics
+    ├── HostMatcher.kt         Pure suffix matching for the blocker
     └── ProwseeLog.kt          Local rotating log
 ```
 
@@ -109,8 +111,17 @@ app/src/main/java/dev/prowsee/permanent/
 - **WebView, not Chromium.** It cannot be a full Chrome replacement: no extensions, no built-in sync, and sites are limited by the system WebView version.
 - **Process death is still possible.** Nothing in userspace prevents it. The session is restored instead.
 - **Video in background** depends on the site and the WebView build; the page stays alive but playback may pause itself.
-- **Blob downloads** (`blob:` URLs) are logged but not yet saved — they require an in-page base64 bridge.
 - **`specialUse` foreground service** is the correct Play Store category for this, but Google requires a declaration if you publish there.
+
+## Tests
+
+```bash
+./gradlew :app:testDebugUnitTest
+```
+
+16 JVM tests cover the URL/search heuristics and the blocker's suffix matching,
+including the case that matters most: `doubleclick.net` blocks
+`static.doubleclick.net` but not `doubleclick.net.example.com`.
 
 ## License
 

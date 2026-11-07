@@ -2,6 +2,7 @@ package dev.prowsee.permanent.engine
 
 import android.content.Context
 import android.util.LruCache
+import dev.prowsee.permanent.util.HostMatcher
 import dev.prowsee.permanent.util.ProwseeLog
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -56,21 +57,10 @@ object AdBlocker {
         if (!enabled || hosts.isEmpty()) return false
         val cached = allowCache.get(url)
         if (cached != null) return cached
-        val host = runCatching { java.net.URI(url).host?.lowercase() }.getOrNull() ?: return false
-        val blocked = matches(host)
+        val host = HostMatcher.hostOf(url) ?: return false
+        val blocked = HostMatcher.matches(host, hosts)
         allowCache.put(url, blocked)
         return blocked
-    }
-
-    private fun matches(host: String): Boolean {
-        if (host.isEmpty()) return false
-        // Check the host and every parent domain: a.b.tracker.com -> tracker.com
-        var candidate = host
-        while (candidate.contains('.')) {
-            if (hosts.contains(candidate)) return true
-            candidate = candidate.substringAfter('.')
-        }
-        return hosts.contains(candidate)
     }
 
     fun size(): Int = hosts.size

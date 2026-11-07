@@ -18,7 +18,7 @@ import java.io.File
  */
 object DownloadHandler {
 
-    fun enqueue(context: Context?, request: DownloadRequest) {
+    fun enqueue(context: Context?, request: DownloadRequest, webView: android.webkit.WebView? = null) {
         val ctx = context ?: return
         val url = request.url
         ProwseeLog.d("download request: $url")
@@ -28,9 +28,17 @@ object DownloadHandler {
             return
         }
         if (url.startsWith("blob:")) {
-            // WebView exposes the blob only inside the page; the injected JS
-            // converts it and posts the bytes back through a JS interface.
-            ProwseeLog.w("blob download requires in-page bridge; ignoring $url")
+            // WebView exposes the blob only inside the page; ask the injected hook to
+            // read it and post the bytes back through the JS interface.
+            val handled = webView?.let { wv ->
+                BlobDownloader.requestSave(
+                    wv,
+                    url,
+                    guessFileName(request),
+                    request.mimeType ?: "application/octet-stream",
+                )
+            } ?: false
+            if (!handled) ProwseeLog.w("blob download not handled: $url")
             return
         }
         if (!url.startsWith("http")) {

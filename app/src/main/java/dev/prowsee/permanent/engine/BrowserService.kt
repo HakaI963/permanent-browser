@@ -38,10 +38,16 @@ class BrowserService : Service() {
 
         fun start(context: Context) {
             val intent = Intent(context, BrowserService::class.java).setAction(ACTION_START)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            }.onFailure {
+                // Android 12+ refuses background FGS starts. The Activity will retry
+                // the next time the user opens the app.
+                ProwseeLog.w("service start refused: ${it.javaClass.simpleName}")
             }
         }
 

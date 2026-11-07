@@ -41,7 +41,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
@@ -76,7 +75,6 @@ fun BrowserScreen(
     val scope = rememberCoroutineScope()
 
     val active = state.active
-    val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val statusBarPadding = with(density) {
         WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -94,6 +92,11 @@ fun BrowserScreen(
 
     // Re-attach whenever the active tab changes.
     LaunchedEffect(state.activeTabId) {
+        BrowserEngine.attachTo(container)
+    }
+
+    LaunchedEffect(Unit) {
+        BrowserEngine.ensureTabs()
         BrowserEngine.attachTo(container)
     }
 

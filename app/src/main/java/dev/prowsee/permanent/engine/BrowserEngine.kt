@@ -29,6 +29,7 @@ object BrowserEngine : BrowserSession.Listener {
 
     private const val PREFS = "prowsee_session"
     private const val KEY_TABS = "tabs"
+    private const val KEY_ACTIVE = "active_tab"
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -62,7 +63,14 @@ object BrowserEngine : BrowserSession.Listener {
         ProwseeLog.init(app.cacheDir)
         AdBlocker.load(app)
         ProwseeLog.d("engine start")
-        restoreSession(app)
+        publish()
+    }
+
+    /** Called once settings have been read, so restored tabs use the right UA/JS state. */
+    fun ensureTabs() {
+        if (sessions.isNotEmpty()) return
+        val ctx = appContext ?: return
+        restoreSession(ctx)
         publish()
     }
 
@@ -70,7 +78,7 @@ object BrowserEngine : BrowserSession.Listener {
         val keepAliveChanged = newSettings.keepAlive != settings.keepAlive
         settings = newSettings
         AdBlocker.enabled = newSettings.adBlock
-        sessions.values.forEach { it.updateSettings(newSettings, applyToPages) }
+        sessions.values.filter { it.isCreated }.forEach { it.updateSettings(newSettings, applyToPages) }
         if (keepAliveChanged) applyKeepAlive(newSettings.keepAlive)
         publish()
     }
@@ -157,6 +165,8 @@ object BrowserEngine : BrowserSession.Listener {
         sessions.values.forEach { it.destroy() }
         sessions.clear()
         _state.value = _state.value.copy(activeTabId = null, tabs = emptyList())
+        // Leave the browser in a usable state rather than with zero tabs.
+        newTab(settings.homepage)
         persistSession()
     }
 
@@ -202,7 +212,8 @@ object BrowserEngine : BrowserSession.Listener {
     fun goForward(): Boolean = active()?.goForward() ?: false
 
     fun setDesktopMode(enabled: Boolean) {
-        sessions.values.forEach { it.setDesktopMode(enabled) }
+        // Only live tabs: touching a session without a WebView would create one.
+        sessions.values.filter { it.isCreated }.forEach { it.setDesktopMode(enabled) }
         publish()
     }
 
@@ -225,10 +236,19 @@ object BrowserEngine : BrowserSession.Listener {
 
     private fun persistSession() {
         val ctx = appContext ?: return
+        val activeId = _state.value.activeTabId.orEmpty()
         val payload = sessions.values.joinToString("|") { s ->
-            listOf(s.id, s.incognito, s.url, s.title.replace("|", " ")).joinToString("\u0001")
+            listOf(
+                s.id,
+                s.incognito,
+                s.url,
+                s.title.replace("|", " ").replace("\u0001", " "),
+            ).joinToString("\u0001")
         }
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putString(KEY_TABS, payload) }
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+            putString(KEY_TABS, payload)
+            putString(KEY_ACTIVE, activeId)
+        }
     }
 
     private fun restoreSession(ctx: Context) {
@@ -242,9 +262,10 @@ object BrowserEngine : BrowserSession.Listener {
             val parts = line.split("\u0001")
             if (parts.size >= 4) parts else null
         }
-        entries.forEach { parts ->
+        entries.distinctBy { it[0] }.forEach { parts ->
             val url = parts[2]
             if (url.isBlank()) return@forEach
+            if (sessions.containsKey(parts[0])) return@forEach
             val session = BrowserSession(
                 appContext = ctx,
                 id = parts[0],
@@ -256,21 +277,30 @@ object BrowserEngine : BrowserSession.Listener {
             session.loadUrl(url, fromUser = false)
         }
         if (sessions.isEmpty()) {
-            newTab(settings.homepage)
-        } else {
-            _state.value = _state.value.copy(activeTabId = sessions.keys.first())
+            // Cold start: open one tab without overwriting the persisted session.
+            val session = BrowserSession(
+                appContext = ctx,
+                incognito = false,
+                initialSettings = settings,
+                listener = this,
+            )
+            sessions[session.id] = session
+            session.loadUrl(settings.homepage, fromUser = false)
         }
+        val savedActive = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_ACTIVE, null)
+        _state.value = _state.value.copy(
+            activeTabId = savedActive?.takeIf { sessions.containsKey(it) } ?: sessions.keys.first(),
+        )
     }
 
     // ------------------------------------------------------------------ publish
 
     private fun publish() {
         val tabs = sessions.values.map { it.snapshot() }
-        _state.value = _state.value.copy(
-            tabs = tabs,
-            activeTabId = _state.value.activeTabId?.takeIf { sessions.containsKey(it) }
-                ?: tabs.firstOrNull()?.id,
-        )
+        val active = _state.value.activeTabId?.takeIf { sessions.containsKey(it) }
+            ?: tabs.firstOrNull()?.id
+        _state.value = _state.value.copy(tabs = tabs, activeTabId = active)
     }
 
     // ------------------------------------------------------- session callbacks
@@ -284,7 +314,7 @@ object BrowserEngine : BrowserSession.Listener {
     }
 
     override fun onDownload(session: BrowserSession, request: DownloadRequest) {
-        DownloadHandler.enqueue(appContext, request)
+        DownloadHandler.enqueue(appContext, request, if (session.isCreated) session.webView else null)
     }
 
     override fun onExternalIntent(session: BrowserSession, intent: Intent) {
@@ -334,6 +364,9 @@ object BrowserEngine : BrowserSession.Listener {
     fun updateNotificationText(text: String) {
         BrowserService.updateText(appContext, text)
     }
+
+    /** Context accessor for collaborators (blob bridge, downloads) outside this file. */
+    internal fun appContext(): Context? = appContext
 
     fun homeUrl(): String = settings.homepage
     fun searchUrl(query: String): String = Urls.toLoadable(query)

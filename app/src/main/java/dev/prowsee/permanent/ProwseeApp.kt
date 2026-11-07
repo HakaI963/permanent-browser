@@ -6,7 +6,6 @@ import dev.prowsee.permanent.data.ProwseeDatabase
 import dev.prowsee.permanent.data.SettingsRepository
 import dev.prowsee.permanent.engine.AdBlocker
 import dev.prowsee.permanent.engine.BrowserEngine
-import dev.prowsee.permanent.engine.BrowserService
 import dev.prowsee.permanent.util.ProwseeLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,16 +34,20 @@ class ProwseeApp : Application() {
             scope.launch { runCatching { repository.recordVisit(url, title) } }
         }
 
-        // Hydrate engine settings once, then keep them in sync.
+        // Hydrate engine settings once, then keep them in sync. Tabs are restored
+        // only after the first settings emission so they pick up the right UA/JS state.
         scope.launch {
             settings.settings.collect { s ->
                 BrowserEngine.updateSettings(s, applyToPages = false)
                 AdBlocker.enabled = s.adBlock
+                BrowserEngine.ensureTabs()
             }
         }
 
-        // Keep the foreground service alive for the whole process lifetime.
-        BrowserService.start(this)
+        // NOTE: the foreground service is started by MainActivity, not here.
+        // Application.onCreate can run because of a background trigger, and on
+        // Android 12+ starting an FGS from the background throws. The service is
+        // declared START_STICKY, so the system restores it after a process kill.
     }
 
     companion object {

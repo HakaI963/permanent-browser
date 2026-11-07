@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import androidx.activity.ComponentActivity
@@ -14,6 +16,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import dev.prowsee.permanent.ProwseeApp
 import dev.prowsee.permanent.engine.BrowserEngine
@@ -25,6 +28,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity(), BrowserEngine.ActivityIntents {
 
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private var fullscreenContainer: FrameLayout? = null
     private var pendingPermission: PermissionRequest? = null
 
     private val fileChooserLauncher =
@@ -82,7 +86,9 @@ class MainActivity : ComponentActivity(), BrowserEngine.ActivityIntents {
         val app = application as ProwseeApp
         BrowserEngine.start(app)
         BrowserEngine.activityIntents = this
-        BrowserService.start(this)
+        if (BrowserEngine.currentSettings().keepAlive) {
+            BrowserService.start(this)
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -200,17 +206,40 @@ class MainActivity : ComponentActivity(), BrowserEngine.ActivityIntents {
         }
     }
 
+    /**
+     * Fullscreen <video>: the WebView hands us its own custom view. It must be added to
+     * a real window or nothing renders, so we mount it in an overlay FrameLayout above
+     * the Compose content.
+     */
     override fun onFullscreen(view: View?) {
-        // Fullscreen video is handled inside the WebView's own container; nothing to do
-        // here beyond keeping the system bars hidden while a video plays.
-        runCatching {
-            if (view != null) {
-                window.decorView.systemUiVisibility =
-                    View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            } else {
-                window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
-            }
+        if (view == null) {
+            fullscreenContainer?.removeAllViews()
+            fullscreenContainer?.visibility = View.GONE
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+            return
         }
+        val overlay = fullscreenContainer ?: FrameLayout(this).also {
+            it.setBackgroundColor(android.graphics.Color.BLACK)
+            addContentView(
+                it,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            fullscreenContainer = it
+        }
+        overlay.removeAllViews()
+        overlay.visibility = View.VISIBLE
+        overlay.addView(
+            view,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        overlay.bringToFront()
+        WindowCompat.setDecorFitsSystemWindows(window, false)
     }
 
     override fun showJsDialog(dialog: BrowserSession.JsDialog) {
