@@ -143,13 +143,27 @@ class BrowserSession(
         private set
     var navigationSeq: Long = 0
         private set
-    var desktopMode: Boolean = settings.desktopMode
-        private set
+    /**
+     * Desktop mode is derived from [settings] rather than stored separately.
+     *
+     * A stored copy could drift: a tab created before a toggle kept the old value, and
+     * switching to it silently reverted the mode. Deriving it makes drift impossible -
+     * there is only one place the value can live.
+     */
+    val desktopMode: Boolean get() = settings.desktopMode
 
     private var lastFinishedUrl: String? = null
 
     @Volatile
     internal var customViewCallback: WebChromeClient.CustomViewCallback? = null
+
+    /** Adapter so the engine's dispatcher can drive a real session in tests too. */
+    val settingsTarget: SettingsTarget = object : SettingsTarget {
+        override val hasWebView: Boolean get() = isCreated
+        override fun applySettings(newSettings: Settings, applyToPage: Boolean) =
+            updateSettings(newSettings, applyToPage)
+        override fun applyDesktopMode(enabled: Boolean) = setDesktopMode(enabled)
+    }
 
     val canGoBack: Boolean get() = _webView?.canGoBack() == true
     val canGoForward: Boolean get() = _webView?.canGoForward() == true
@@ -203,6 +217,10 @@ class BrowserSession(
             )
         }
         BlobDownloader.install(view, "ProwseeBlob")
+        // Register the viewport rewrite up front. Doing it only on toggle meant a tab
+        // created while desktop mode was already on got a desktop UA with a mobile
+        // viewport - the "switch tab and desktop mode is off" bug.
+        DesktopMode.sync(view, desktopMode)
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
         _webView = view
         return view
@@ -261,7 +279,7 @@ class BrowserSession(
      */
     fun setDesktopMode(enabled: Boolean) {
         if (desktopMode == enabled) return
-        desktopMode = enabled
+        settings = settings.copy(desktopMode = enabled)
         val wv = _webView
         if (wv != null) {
             wv.applySettings(settings, desktopMode, incognito)
@@ -281,9 +299,15 @@ class BrowserSession(
      */
     fun updateSettings(newSettings: Settings, applyToPage: Boolean) {
         val previousDesktop = desktopMode
+        // Update the state unconditionally. Returning early when the WebView does not
+        // exist yet left the session holding a stale desktopMode, which is exactly how
+        // switching to a background tab reverted desktop mode.
         settings = newSettings
-        desktopMode = newSettings.desktopMode
-        val wv = _webView ?: return
+
+        val wv = _webView ?: run {
+            notifyChanged()
+            return
+        }
         wv.applySettings(newSettings, desktopMode, incognito)
         // A UA change only takes effect on the next load, so a desktop-mode change
         // must reload even when the caller asked not to disturb pages.

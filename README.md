@@ -202,8 +202,9 @@ rewrite has to win the race against the page's own scripts.
 ./gradlew :app:testDebugUnitTest
 ```
 
-44 JVM tests cover the URL/search heuristics, the blocker's suffix matching, the
-user-agent rules, the desktop-viewport hook, and proxy URI + subscription parsing. Several are regression guards for
+50 JVM tests cover the URL/search heuristics, the blocker's suffix matching, the
+user-agent rules, the desktop-viewport hook, proxy URI + subscription parsing, and
+desktop-mode propagation across tabs. Several are regression guards for
 shipped bugs:
 
 - `doubleclick.net` blocks `static.doubleclick.net` but not `doubleclick.net.example.com`
@@ -211,6 +212,8 @@ shipped bugs:
   rejects
 - the desktop hook rewrites an existing `width=device-width` meta and creates one
   when the page has none, without pinning `initial-scale`
+- every tab receives a desktop-mode change, including tabs whose WebView does not
+  exist yet (the "switch tab and desktop mode turns off" bug)
 
 ## License
 

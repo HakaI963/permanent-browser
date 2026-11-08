@@ -89,7 +89,14 @@ object BrowserEngine : BrowserSession.Listener {
             val keepAliveChanged = newSettings.keepAlive != settings.keepAlive
             settings = newSettings
             AdBlocker.enabled = newSettings.adBlock
-            sessions.values.filter { it.isCreated }.forEach { it.updateSettings(newSettings, applyToPages) }
+            // Every session, not just created ones: a background tab still has to
+            // learn the new desktop-mode value, otherwise switching to it shows the
+            // old mode. Dispatcher owns that rule and is unit tested.
+            TabSettingsDispatcher.dispatchSettings(
+                sessions.values.map { it.settingsTarget },
+                newSettings,
+                applyToPages,
+            )
             if (keepAliveChanged) applyKeepAlive(newSettings.keepAlive)
             publish()
         }
@@ -240,8 +247,12 @@ object BrowserEngine : BrowserSession.Listener {
 
     fun setDesktopMode(enabled: Boolean) {
         runOnMain {
-            // Only live tabs: touching a session without a WebView would create one.
-            sessions.values.filter { it.isCreated }.forEach { it.setDesktopMode(enabled) }
+            // Apply to every tab so background tabs switch too. Applying to a session
+            // without a WebView only records the value; it does not create one.
+            TabSettingsDispatcher.dispatchDesktopMode(
+                sessions.values.map { it.settingsTarget },
+                enabled,
+            )
             publish()
         }
     }
