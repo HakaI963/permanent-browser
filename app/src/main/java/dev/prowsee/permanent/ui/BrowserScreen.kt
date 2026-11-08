@@ -52,9 +52,10 @@ import dev.prowsee.permanent.data.BrowsingRepository
 import dev.prowsee.permanent.data.SettingsRepository
 import dev.prowsee.permanent.engine.BrowserEngine
 import dev.prowsee.permanent.engine.BrowserSession
+import dev.prowsee.permanent.proxy.ProxyMode
 import dev.prowsee.permanent.util.Urls
 
-private enum class Sheet { None, Tabs, Menu, Bookmarks, History, Settings }
+private enum class Sheet { None, Tabs, Menu, Bookmarks, History, Settings, Proxy }
 
 @Composable
 fun BrowserScreen(
@@ -69,6 +70,8 @@ fun BrowserScreen(
     )
     val bookmarks by repository.bookmarks.collectAsStateWithLifecycle(initialValue = emptyList())
     val history by repository.history.collectAsStateWithLifecycle(initialValue = emptyList())
+    val proxyStatus by dev.prowsee.permanent.proxy.ProxyManager.status.collectAsStateWithLifecycle()
+    val proxyProfiles by dev.prowsee.permanent.proxy.ProxyManager.profiles.collectAsStateWithLifecycle()
 
     var sheet by remember { mutableStateOf(Sheet.None) }
     var jsDialog by remember { mutableStateOf<BrowserSession.JsDialog?>(null) }
@@ -195,6 +198,7 @@ fun BrowserScreen(
             onBookmarks = { sheet = Sheet.Bookmarks },
             onHistory = { sheet = Sheet.History },
             onSettings = { sheet = Sheet.Settings },
+            onProxy = { sheet = Sheet.Proxy },
             onCopyLink = {
                 val tab = active
                 if (tab != null) {
@@ -270,6 +274,30 @@ fun BrowserScreen(
             onTextZoomChange = { v -> scope.launch { settingsRepository.setTextZoom(v) } },
             onSearchEngineChange = { v -> scope.launch { settingsRepository.setSearchEngine(v) } },
             adBlockerHosts = dev.prowsee.permanent.engine.AdBlocker.size(),
+            onDismiss = { sheet = Sheet.None },
+        )
+    }
+
+    if (sheet == Sheet.Proxy) {
+        ProxySheet(
+            status = proxyStatus,
+            profiles = proxyProfiles,
+            activeProfile = dev.prowsee.permanent.proxy.ProxyManager.activeProfile(),
+            activeMode = dev.prowsee.permanent.proxy.ProxyManager.activeMode(),
+            onApply = { profile, mode ->
+                dev.prowsee.permanent.proxy.ProxyManager.apply(profile, mode)
+                scope.launch {
+                    settingsRepository.setProxy(profile.toProxyUrl(), mode)
+                }
+            },
+            onDisable = {
+                dev.prowsee.permanent.proxy.ProxyManager.clear()
+                scope.launch { settingsRepository.setProxy("", ProxyMode.OFF) }
+            },
+            onAddProfiles = { list ->
+                list.forEach { dev.prowsee.permanent.proxy.ProxyManager.addProfile(it) }
+            },
+            onRemoveProfile = { dev.prowsee.permanent.proxy.ProxyManager.removeProfile(it) },
             onDismiss = { sheet = Sheet.None },
         )
     }

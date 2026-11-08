@@ -181,6 +181,7 @@ fun MenuSheet(
     onBookmarks: () -> Unit,
     onHistory: () -> Unit,
     onSettings: () -> Unit,
+    onProxy: () -> Unit,
     onCopyLink: () -> Unit,
     onShare: () -> Unit,
     onAddBookmark: () -> Unit,
@@ -208,6 +209,7 @@ fun MenuSheet(
             MenuRow("History", null, onClick = onHistory)
             MenuRow("Copy link", null, onClick = onCopyLink)
             MenuRow("Share link", null, onClick = onShare)
+            MenuRow("Proxy", "Per-app, no VPN service", onClick = onProxy)
             MenuRow("Settings", null, onClick = onSettings)
             MenuRow("Clear browsing data", "Cookies, cache, all tabs", onClick = onClearData)
             MenuRow("Close app (keeps pages)", "Tabs stay alive in background", onClick = onExit)

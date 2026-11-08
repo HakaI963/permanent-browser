@@ -6,6 +6,9 @@ import dev.prowsee.permanent.data.ProwseeDatabase
 import dev.prowsee.permanent.data.SettingsRepository
 import dev.prowsee.permanent.engine.AdBlocker
 import dev.prowsee.permanent.engine.BrowserEngine
+import dev.prowsee.permanent.proxy.ProxyManager
+import dev.prowsee.permanent.proxy.ProxyMode
+import dev.prowsee.permanent.proxy.ProxyProfile
 import dev.prowsee.permanent.util.ProwseeLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +39,10 @@ class ProwseeApp : Application() {
 
         installCrashGuard()
 
+        // A previous process may have died while iptables rules were installed.
+        // Those rules would silently blackhole traffic, so clear them first thing.
+        ProxyManager.recoverOnStartup(this)
+
         // Hydrate engine settings once, then keep them in sync. Tabs are restored
         // only after the first settings emission so they pick up the right UA/JS state.
         // updateSettings() hops to the main thread itself, so collecting on IO is safe.
@@ -44,6 +51,18 @@ class ProwseeApp : Application() {
                 BrowserEngine.updateSettings(s, applyToPages = false)
                 AdBlocker.enabled = s.adBlock
                 BrowserEngine.ensureTabs()
+            }
+        }
+
+        // Re-apply a saved proxy on cold start, but only after recovery cleared any
+        // stale kernel rules, and never silently: the sheet shows the real result.
+        scope.launch {
+            val saved = settings.current()
+            if (saved.proxyMode != ProxyMode.OFF && saved.proxyUri.isNotBlank()) {
+                ProxyProfile.parse(saved.proxyUri)?.let { profile ->
+                    ProxyManager.addProfile(profile)
+                    ProxyManager.apply(profile, saved.proxyMode)
+                }
             }
         }
 

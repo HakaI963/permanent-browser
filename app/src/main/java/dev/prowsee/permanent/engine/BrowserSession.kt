@@ -214,7 +214,14 @@ class BrowserSession(
         ProwseeLog.d("tab $id load $target")
         errorText = null
         url = target
-        webView.loadUrl(target)
+        // DNT is a request header, so it can only be set on the main document here.
+        // WebViewClient gives no hook for per-subresource headers, and faking one
+        // would be worse than not sending it: this is the honest subset.
+        if (settings.doNotTrack) {
+            webView.loadUrl(target, mapOf("DNT" to "1"))
+        } else {
+            webView.loadUrl(target)
+        }
         notifyChanged()
     }
 

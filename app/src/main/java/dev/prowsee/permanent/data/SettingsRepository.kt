@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import dev.prowsee.permanent.proxy.ProxyMode
 import dev.prowsee.permanent.util.Urls
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -27,6 +28,11 @@ data class Settings(
     val keepAlive: Boolean = true,
     val textZoom: Int = 100,
     val searchEngine: SearchEngine = SearchEngine.DUCKDUCKGO,
+    // Privacy hardening that is honest and verifiable, unlike UA/anti-detect tricks.
+    val doNotTrack: Boolean = true,
+    // Proxy is stored as a URI string so it round-trips through DataStore cleanly.
+    val proxyUri: String = "",
+    val proxyMode: ProxyMode = ProxyMode.OFF,
 )
 
 enum class SearchEngine(val label: String, val template: String) {
@@ -47,6 +53,9 @@ class SettingsRepository(private val context: Context) {
         val keepAlive = booleanPreferencesKey("keep_alive")
         val textZoom = intPreferencesKey("text_zoom")
         val searchEngine = stringPreferencesKey("search_engine")
+        val doNotTrack = booleanPreferencesKey("do_not_track")
+        val proxyUri = stringPreferencesKey("proxy_uri")
+        val proxyMode = stringPreferencesKey("proxy_mode")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { prefs ->
@@ -61,6 +70,11 @@ class SettingsRepository(private val context: Context) {
             searchEngine = runCatching {
                 SearchEngine.valueOf(prefs[Keys.searchEngine] ?: SearchEngine.DUCKDUCKGO.name)
             }.getOrDefault(SearchEngine.DUCKDUCKGO),
+            doNotTrack = prefs[Keys.doNotTrack] ?: true,
+            proxyUri = prefs[Keys.proxyUri] ?: "",
+            proxyMode = runCatching {
+                ProxyMode.valueOf(prefs[Keys.proxyMode] ?: ProxyMode.OFF.name)
+            }.getOrDefault(ProxyMode.OFF),
         )
     }
 
@@ -74,6 +88,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun setKeepAlive(value: Boolean) = edit { it[Keys.keepAlive] = value }
     suspend fun setTextZoom(value: Int) = edit { it[Keys.textZoom] = value.coerceIn(50, 200) }
     suspend fun setSearchEngine(value: SearchEngine) = edit { it[Keys.searchEngine] = value.name }
+    suspend fun setDoNotTrack(value: Boolean) = edit { it[Keys.doNotTrack] = value }
+
+    suspend fun setProxy(value: String, mode: ProxyMode) = edit {
+        it[Keys.proxyUri] = value
+        it[Keys.proxyMode] = mode.name
+    }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)

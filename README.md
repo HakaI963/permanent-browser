@@ -50,6 +50,8 @@ The last two rows are the honest limits. A third-party app cannot be immune to t
 - **JS dialogs** — alert / confirm / prompt rendered as native Compose dialogs.
 - **Popups** — `target="_blank"` opens a real new tab via `WebViewTransport`.
 - **Settings** — home page, JS, third-party cookies, text zoom, search engine, keep-alive.
+- **Per-app proxy** — `ProxyController`, no VPN service, no root. You supply the server.
+- **Root redirect** — iptables UID redirect for rooted devices, still no VPN service.
 
 ## Install
 
@@ -103,6 +105,12 @@ app/src/main/java/dev/prowsee/permanent/
 │   ├── BrowserToolbar.kt      Address bar
 │   ├── Sheets.kt              Tabs, menu, bookmarks, history, settings
 │   └── Theme.kt
+├── proxy/
+│   ├── ProxyProfile.kt        Endpoint model + URI parsing
+│   ├── WebViewProxy.kt        ProxyController (non-root)
+│   ├── RootProxy.kt           iptables UID redirect (root, no VpnService)
+│   ├── ProxyManager.kt        Applies + verifies, never lies about state
+│   └── SubscriptionParser.kt  Parses user-supplied lists
 └── util/
     ├── Urls.kt                Input → URL/search heuristics
     ├── HostMatcher.kt         Pure suffix matching for the blocker
@@ -127,6 +135,46 @@ prefer the stricter default and do not sign in to those services.
 
 If a provider still refuses, open it in the system browser via the menu — that is a
 limitation of any WebView-based browser, not of this one.
+
+## Proxy
+
+Two mechanisms, both honest about what they can do:
+
+| Mode | Root | Mechanism | Scope |
+| --- | --- | --- | --- |
+| Browser only | no | `ProxyController` | this app's WebView requests |
+| System-wide | yes | `iptables -t nat ... --uid-owner` | every connection from this app's UID |
+
+**No `BIND_VPN_SERVICE` permission is requested.** Android's `VpnService` is never
+used, by design.
+
+### You supply the server
+
+The app ships **no server list** and never downloads one. You add a `host:port`, or
+paste a subscription you already have. That is a deliberate choice, not an
+oversight: a free proxy list is somebody else's server watching every login you make,
+and an auto-updating list is an invitation for a third party to join it and MITM you.
+
+### On "IP spoofing"
+
+It is not possible over TCP, and no app can make it work. A forged source address
+means the server's replies are routed to the address you claimed, not to you, so the
+three-way handshake never completes and no connection forms. This is why IP spoofing
+only appears in one-way DDoS reflection, never in browsing.
+
+What *does* hide your address is a proxy you control, because the request genuinely
+originates from the proxy. That is what this implements. Anything advertising
+"IP spoofing for browsing" is a proxy with a misleading label.
+
+### What is not implemented, and why
+
+- **Anti-detect / fingerprint evasion.** A WebView leaks TLS/JA3, canvas, WebGL,
+  fonts and timing. Spoofing the UA does not change those, so it creates false
+  confidence while you remain uniquely identifiable. Worse than doing nothing if you
+  are relying on it. Only `DNT: 1` is sent, which is a polite request, not a disguise.
+- **Shadowsocks as a live tunnel.** `ss://` URIs are parsed so the endpoint is
+  visible, but a Shadowsocks endpoint is not an HTTP proxy; it needs a local bridge.
+  The app does not pretend a SOCKS profile will work against it.
 
 ## Why desktop mode is two changes, not one
 
@@ -154,8 +202,8 @@ rewrite has to win the race against the page's own scripts.
 ./gradlew :app:testDebugUnitTest
 ```
 
-29 JVM tests cover the URL/search heuristics, the blocker's suffix matching, the
-user-agent rules and the desktop-viewport hook. Several are regression guards for
+44 JVM tests cover the URL/search heuristics, the blocker's suffix matching, the
+user-agent rules, the desktop-viewport hook, and proxy URI + subscription parsing. Several are regression guards for
 shipped bugs:
 
 - `doubleclick.net` blocks `static.doubleclick.net` but not `doubleclick.net.example.com`
