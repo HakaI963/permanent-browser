@@ -180,7 +180,10 @@ class BrowserSession(
         )
         UserAgents.capture(view.settings.userAgentString)
         view.isVerticalScrollBarEnabled = true
-        view.isHorizontalScrollBarEnabled = false
+        // Horizontal scrolling stays enabled: in desktop mode a page can be wider than
+        // the screen, and with this off the right-hand side is simply unreachable.
+        view.isHorizontalScrollBarEnabled = true
+        view.overScrollMode = View.OVER_SCROLL_NEVER
         view.setBackgroundColor(0xFF101114.toInt())
         view.applySettings(settings, desktopMode, incognito)
         if (incognito) {
@@ -588,7 +591,9 @@ internal fun WebView.applySettings(settings: Settings, desktopMode: Boolean, inc
     s.setSupportMultipleWindows(true)
     s.loadWithOverviewMode = true
     s.useWideViewPort = true
-    s.builtInZoomControls = false
+    // Pinch-to-zoom must work: it is the escape hatch when a desktop page is still
+    // wider than the viewport. The on-screen +/- buttons stay hidden.
+    s.builtInZoomControls = true
     s.displayZoomControls = false
     s.setSupportZoom(true)
     s.mediaPlaybackRequiresUserGesture = false

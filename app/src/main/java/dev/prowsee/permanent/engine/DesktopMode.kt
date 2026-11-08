@@ -26,11 +26,16 @@ import java.util.WeakHashMap
 internal object DesktopMode {
 
     /**
-     * Desktop layout width. 1280 is the common laptop breakpoint: wide enough to
-     * trigger most sites' `lg`/desktop media queries, narrow enough that WebView's
-     * overview zoom keeps it readable on a phone.
+     * Desktop layout width.
+     *
+     * 980 is the classic desktop viewport width that mobile browsers have used for
+     * "request desktop site" for years. 1280 triggered the same media queries but was
+     * wide enough that pages with fixed-width containers overflowed a phone screen,
+     * and because horizontal scrolling was disabled the right-hand side was
+     * unreachable. 980 still hits desktop breakpoints on virtually every site while
+     * fitting far more often.
      */
-    private const val DESKTOP_WIDTH = 1280
+    private const val DESKTOP_WIDTH = 980
 
     private val HOOK = """
         (function () {
@@ -41,7 +46,9 @@ internal object DesktopMode {
           // Deliberately NO initial-scale: WebView's overview mode (loadWithOverviewMode
           // + useWideViewPort) zooms the fixed-width page out to fit the screen. Adding
           // initial-scale=1 would pin the zoom and show only the left edge.
-          var DESIRED = 'width=' + WIDTH;
+          // user-scalable lets the user pinch out when a site still overflows; the
+          // WebView then has a way to reach the clipped side.
+          var DESIRED = 'width=' + WIDTH + ', user-scalable=yes';
 
           function fix() {
             var metas = document.querySelectorAll('meta[name="viewport"]');

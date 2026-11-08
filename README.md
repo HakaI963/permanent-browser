@@ -40,7 +40,7 @@ The last two rows are the honest limits. A third-party app cannot be immune to t
 - **Multi-tab, all kept alive** — switching tabs re-parents a live WebView, never re-creates it.
 - **Foreground session service** — persistent notification with Reload and Close-all actions.
 - **Address bar** — URL or search, with a URL/search heuristic (`Urls.toLoadable`).
-- **Desktop mode** — a real desktop layout, not just a UA swap: the UA changes *and* the CSS viewport is widened to 1280px via document-start JavaScript, which is what actually makes responsive sites render their desktop breakpoint.
+- **Desktop mode** — a real desktop layout, not just a UA swap: the UA changes *and* the CSS viewport is widened to 980px via document-start JavaScript, which is what actually makes responsive sites render their desktop breakpoint. Horizontal scrolling and pinch-zoom stay enabled so a page that still overflows can be reached.
 - **Private tabs** — no cache, no history writes.
 - **Ad & tracker blocking** — local hosts blocklist, ~220 domains, parent-domain matching, main frame never blocked.
 - **Bookmarks & history** — Room, local only.

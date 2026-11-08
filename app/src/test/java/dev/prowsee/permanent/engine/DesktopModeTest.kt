@@ -34,7 +34,7 @@ class DesktopModeTest {
         fun runHook(js: String) {
             // The hook builds DESIRED as: 'width=' + WIDTH
             val width = Regex("var WIDTH = (\\d+);").find(js)?.groupValues?.get(1) ?: return
-            val desired = "width=$width"
+            val desired = "width=$width, user-scalable=yes"
             if (metas.isEmpty()) {
                 head.appendChild(FakeMeta("viewport", desired))
             } else {
@@ -51,7 +51,7 @@ class DesktopModeTest {
         dom.runHook(DesktopMode.hookForTests())
 
         assertEquals(1, dom.metas.size)
-        assertEquals("width=1280", dom.metas[0].content)
+        assertEquals("width=980, user-scalable=yes", dom.metas[0].content)
         assertTrue(dom.created.isEmpty())
     }
 
@@ -62,7 +62,7 @@ class DesktopModeTest {
         dom.runHook(DesktopMode.hookForTests())
 
         assertEquals(1, dom.created.size)
-        assertEquals("width=1280", dom.created[0].content)
+        assertEquals("width=980, user-scalable=yes", dom.created[0].content)
     }
 
     @Test
@@ -70,10 +70,26 @@ class DesktopModeTest {
         val js = DesktopMode.hookForTests()
 
         // initial-scale would fight WebView overview mode and show only the left edge.
-        assertTrue(
-            "desktop hook must not set initial-scale",
-            !js.contains("initial-scale=1'") && !js.contains("initial-scale = 1"),
-        )
+        // Check the value the hook actually assigns, not the explanatory comment.
+        val desired = Regex("var DESIRED = '([^']*)'").find(js)?.groupValues?.get(1)
+        assertTrue("DESIRED must be assigned", desired != null)
+        assertTrue("must not pin initial-scale, was: $desired", !desired!!.contains("initial-scale"))
+    }
+
+    @Test
+    fun `hook allows the user to zoom out when a page still overflows`() {
+        val js = DesktopMode.hookForTests()
+        assertTrue("must keep pinch-zoom available", js.contains("user-scalable=yes"))
+    }
+
+    @Test
+    fun `desktop width stays within a phone screen`() {
+        val js = DesktopMode.hookForTests()
+        val width = Regex("var WIDTH = (\\d+);").find(js)?.groupValues?.get(1)?.toIntOrNull()
+        assertTrue("width must be present", width != null)
+        // 1280 overflowed common phone viewports; 980 is the classic desktop width.
+        assertTrue("width should not exceed 1024, was $width", width!! <= 1024)
+        assertTrue("width should still trigger desktop breakpoints", width >= 900)
     }
 
     @Test
